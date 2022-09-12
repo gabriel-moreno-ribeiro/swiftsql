@@ -1,0 +1,16 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: swift-actions/setup-swift@v1
+        with:
+          swift-version: "5.7"
+      - run: swift --version
+      - run: swift build
+      - run: swift test
+      - run: |
+          printf "CREATE TABLE t (id INT PRIMARY KEY, name TEXT(20));\nINSERT INTO t VALUES (1, 'ci'), (2, 'works');\nSELECT * FROM t WHERE id = 2;\n.stats t\n" | swift run swiftsql /tmp/demo-db | tee /tmp/out.txt
+          grep -q "works" /tmp/out.txt
