@@ -1,8 +1,6 @@
 # swiftsql
 
-A small relational database written from scratch in Swift: a page-based
-storage engine with a B+tree, fixed-size rows, a SQL lexer and parser, a
-query executor and an interactive shell. No dependencies beyond Foundation.
+Um banco de dados relacional pequeno em Swift: storage por páginas com B+tree, linhas de tamanho fixo, lexer e parser de SQL, executor e um shell interativo. Só Foundation.
 
 ```sh
 swift build -c release
@@ -20,58 +18,24 @@ sql> SELECT name, age FROM users WHERE age > 24 ORDER BY age DESC LIMIT 2;
 | cy   | 41  |
 | ana  | 30  |
 (2 rows)
-sql> UPDATE users SET age = 26 WHERE name = 'bo';
-sql> DELETE FROM users WHERE id = 3;
 sql> .stats users
 rows: 2  tree height: 1  pages: 1 (4096 bytes)
 ```
 
-## Supported SQL
+SQL suportado: `CREATE TABLE` (`INT PRIMARY KEY`, `TEXT(n)`), `DROP TABLE`, `INSERT` com várias linhas, `SELECT` com `*`/colunas/`COUNT(*)`, `WHERE` (`= != < > <= >=`, `AND`, `OR`, parênteses, `NULL`), `ORDER BY`, `LIMIT`, `UPDATE`, `DELETE`, e no shell `.tables`, `.schema`, `.stats`, `.exit`. A chave primária tem que ser `INT` e é a chave da B+tree.
 
-- `CREATE TABLE t (col INT PRIMARY KEY, col TEXT(n), ...)`, `DROP TABLE t`
-- `INSERT INTO t [(cols)] VALUES (...), (...)`
-- `SELECT * | cols | COUNT(*) FROM t [WHERE expr] [ORDER BY col [ASC|DESC]] [LIMIT n]`
-- `UPDATE t SET col = value, ... [WHERE expr]`
-- `DELETE FROM t [WHERE expr]`
-- expressions: `= != < > <= >=`, `AND`, `OR`, parentheses, integer and
-  `'string'` literals (with `''` escaping), `NULL`
-- meta commands in the shell: `.tables`, `.schema`, `.stats <table>`, `.exit`
+## Como os bytes ficam no disco
 
-Types are `INT` (64-bit) and `TEXT(n)` (up to n UTF-8 bytes, default 255).
-The primary key must be an `INT` column and is the B+tree key.
+- **Pager** (`Pager.swift`): o arquivo da tabela é um array de páginas de 4 KB, com cache em memória, marcadas como sujas na escrita e descarregadas no fim de cada statement.
+- **B+tree** (`BTree.swift`): folhas guardam `chave + linha` ordenadas e são ligadas da esquerda pra direita pra scan; nós internos guardam pares `filho, maiorChave` mais um filho à direita. Inserir numa folha cheia divide ela e empurra um separador pra cima; nó interno cheio divide também, e a raiz cresce a árvore em um nível. Busca é binária descendo a árvore. Delete só remove a célula, sem rebalancear (foi uma escolha, não preguiça... tá, um pouco de preguiça).
+- **Linhas** (`Schema.swift`): o schema define um tamanho fixo (8 bytes por INT, 2 + n por TEXT(n)), então célula nunca se move dentro da página.
+- **SQL** (`SQL.swift`): lexer e parser recursivo à mão gerando uma AST pequena.
+- **Executor** (`Database.swift`): `schema.json` é o catálogo; cada tabela é sua própria B+tree num arquivo. SELECT varre as folhas, filtra, ordena e limita em memória.
 
-## How it works
+O que aprendi de Swift aqui: `Data` com `withUnsafeBytes` pra ler inteiros big-endian de uma página é feio mas rápido, e os enums com valores associados são perfeitos pra AST.
 
-- **Pager** (`Pager.swift`): the table file is an array of 4 KB pages. Pages
-  are cached in memory, marked dirty on write and flushed at the end of each
-  statement.
-- **B+tree** (`BTree.swift`): leaf pages hold `key + row` cells sorted by
-  key and are linked left to right for scans; internal pages hold
-  `child, maxKey` pairs plus a right-most child. Inserting into a full leaf
-  splits it and pushes a separator up; a full internal node splits too, and
-  the root grows the tree by one level. Lookups are binary searches down the
-  tree. Deletes remove the cell without rebalancing.
-- **Rows** (`Schema.swift`): a table's schema decides a fixed row size
-  (8 bytes per INT, 2 + n per TEXT(n)), so cells never move within a page.
-- **SQL** (`SQL.swift`): a hand-written lexer and a recursive-descent parser
-  produce a small AST (`Statement`, `Expr`).
-- **Executor** (`Database.swift`): `schema.json` is the catalog; each table
-  is its own B+tree file. SELECT scans the leaves, filters with the
-  expression evaluator, then sorts and limits in memory. UPDATE rewrites
-  cells in place (or moves the row when the key changes); DELETE removes
-  matching keys.
+Testes: `swift test` (B+tree com inserções aleatórias e sequenciais com muitas divisões, deletes, updates, reabrir o arquivo; lexer e parser; e o banco de ponta a ponta com uma tabela de 5000 linhas escrita, reaberta do disco e consultada).
 
-## Tests
+---
 
-```sh
-swift test
-```
-
-The XCTest suite covers the B+tree (random and sequential inserts with many
-splits, deletes, updates, reopening the file), the lexer and parser (every
-statement form and error), and the database end to end, including a 5000-row
-table that is written, reopened from disk and queried.
-
-## License
-
-MIT
+**EN:** a small relational database in Swift: a 4 KB page cache, a B+tree with leaf and internal splits, fixed-size rows, a hand-written SQL lexer/parser (CREATE/INSERT/SELECT/UPDATE/DELETE with WHERE, ORDER BY, LIMIT) and an interactive shell. XCTest covers the tree, the parser and end-to-end queries over 5000 rows that survive reopening the file. MIT.
