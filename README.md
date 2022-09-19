@@ -1,5 +1,7 @@
 # swiftsql
 
+> 🇺🇸 [English version below](#english)
+
 Um banco de dados relacional pequeno em Swift: storage por páginas com B+tree, linhas de tamanho fixo, lexer e parser de SQL, executor e um shell interativo. Só Foundation.
 
 ```sh
@@ -38,4 +40,42 @@ Testes: `swift test` (B+tree com inserções aleatórias e sequenciais com muita
 
 ---
 
-**EN:** a small relational database in Swift: a 4 KB page cache, a B+tree with leaf and internal splits, fixed-size rows, a hand-written SQL lexer/parser (CREATE/INSERT/SELECT/UPDATE/DELETE with WHERE, ORDER BY, LIMIT) and an interactive shell. XCTest covers the tree, the parser and end-to-end queries over 5000 rows that survive reopening the file. MIT.
+## English
+
+A small relational database in Swift: page-based storage with a B+tree, fixed-size rows, SQL lexer and parser, executor and an interactive shell. Foundation only.
+
+```sh
+swift build -c release
+.build/release/swiftsql ./mydb
+```
+
+```
+sql> CREATE TABLE users (id INT PRIMARY KEY, name TEXT(32), age INT);
+table users created
+sql> INSERT INTO users VALUES (1, 'ana', 30), (2, 'bo', 25), (3, 'cy', 41);
+3 rows inserted
+sql> SELECT name, age FROM users WHERE age > 24 ORDER BY age DESC LIMIT 2;
+| name | age |
+|------|-----|
+| cy   | 41  |
+| ana  | 30  |
+(2 rows)
+sql> .stats users
+rows: 2  tree height: 1  pages: 1 (4096 bytes)
+```
+
+Supported SQL: `CREATE TABLE` (`INT PRIMARY KEY`, `TEXT(n)`), `DROP TABLE`, multi-row `INSERT`, `SELECT` with `*`/columns/`COUNT(*)`, `WHERE` (`= != < > <= >=`, `AND`, `OR`, parentheses, `NULL`), `ORDER BY`, `LIMIT`, `UPDATE`, `DELETE`, and in the shell `.tables`, `.schema`, `.stats`, `.exit`. The primary key has to be `INT` and is the B+tree key.
+
+## How the bytes sit on disk
+
+- **Pager** (`Pager.swift`): the table file is an array of 4 KB pages, cached in memory, marked dirty on write and flushed at the end of each statement.
+- **B+tree** (`BTree.swift`): leaves store `key + row` in order and are linked left to right for scans; internal nodes store `child, largestKey` pairs plus a rightmost child. Inserting into a full leaf splits it and pushes a separator up; a full internal node splits too, and the root grows the tree by one level. Search is binary going down the tree. Delete just removes the cell, no rebalancing (it was a choice, not laziness... ok, a bit of laziness).
+- **Rows** (`Schema.swift`): the schema defines a fixed size (8 bytes per INT, 2 + n per TEXT(n)), so a cell never moves inside the page.
+- **SQL** (`SQL.swift`): hand-written lexer and recursive parser producing a small AST.
+- **Executor** (`Database.swift`): `schema.json` is the catalog; every table is its own B+tree in a file. SELECT scans the leaves, filters, sorts and limits in memory.
+
+What I learned about Swift here: `Data` with `withUnsafeBytes` to read big-endian integers from a page is ugly but fast, and enums with associated values are perfect for the AST.
+
+Tests: `swift test` (B+tree with random and sequential inserts with lots of splits, deletes, updates, reopening the file; lexer and parser; and the database end to end with a 5000-row table written, reopened from disk and queried).
+
+MIT.
